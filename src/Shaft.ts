@@ -227,4 +227,84 @@ export class Shaft {
         this.endMagnet.getWorldPosition(worldPos);
         return worldPos;
     }
+
+    /**
+     * Create a transparent preview shaft for hover visualization
+     */
+    public static createPreview(size: ShaftSize): THREE.Group {
+        const length = size === 'small' ? SMALL_SHAFT_LENGTH : LARGE_SHAFT_LENGTH;
+        
+        const group = new THREE.Group();
+        
+        // Create cylinder shaft with transparent material
+        const geometry = new THREE.CylinderGeometry(
+            SHAFT_RADIUS,
+            SHAFT_RADIUS,
+            length,
+            16
+        );
+        
+        const material = new THREE.MeshStandardMaterial({
+            color: 0xaaaaaa,
+            metalness: 0.5,
+            roughness: 0.3,
+            transparent: true,
+            opacity: 0.4,
+            depthWrite: false,
+        });
+        
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+        group.add(mesh);
+        
+        // Create magnet end indicator (only show the free end)
+        const magnetGeometry = new THREE.SphereGeometry(SHAFT_RADIUS * 2, 16, 16);
+        const magnetMaterial = new THREE.MeshStandardMaterial({
+            color: size === 'small' ? 0x4CAF50 : 0x2196F3,
+            metalness: 0.5,
+            roughness: 0.4,
+            transparent: true,
+            opacity: 0.5,
+            depthWrite: false,
+        });
+        
+        const endMagnet = new THREE.Mesh(magnetGeometry, magnetMaterial);
+        endMagnet.position.set(0, length / 2, 0);
+        group.add(endMagnet);
+        
+        // Store length for positioning calculations
+        group.userData.length = length;
+        group.userData.size = size;
+        
+        return group;
+    }
+
+    /**
+     * Update preview shaft position based on ball position and direction
+     */
+    public static updatePreview(
+        preview: THREE.Group, 
+        ballPosition: THREE.Vector3, 
+        direction: THREE.Vector3
+    ): void {
+        const length = preview.userData.length as number;
+        
+        // Position: start from ball surface, then offset to center of shaft
+        const connectionPoint = ballPosition.clone().add(
+            direction.clone().normalize().multiplyScalar(BALL_RADIUS)
+        );
+        
+        const shaftCenter = connectionPoint.clone().add(
+            direction.clone().normalize().multiplyScalar(length / 2)
+        );
+        
+        preview.position.copy(shaftCenter);
+        
+        // Orient shaft in the direction
+        preview.quaternion.setFromUnitVectors(
+            new THREE.Vector3(0, 1, 0),
+            direction.clone().normalize()
+        );
+    }
 }

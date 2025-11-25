@@ -18,6 +18,20 @@ class MagneticBuilder {
     private selectedShaftSize: ShaftSize = 'small';
     private pendingShaft: Shaft | null = null;
     private pendingBall: Ball | null = null;
+    
+    // Drag state
+    private isDragging: boolean = false;
+    private draggedBall: Ball | null = null;
+    private dragPlane: THREE.Plane = new THREE.Plane();
+    private dragOffset: THREE.Vector3 = new THREE.Vector3();
+    private dragStartPositions: Map<Ball, THREE.Vector3> = new Map();
+    private mouseDownPosition: THREE.Vector2 = new THREE.Vector2();
+    private hasDragged: boolean = false; // True if mouse moved enough to be a drag
+    private readonly DRAG_THRESHOLD = 5; // Pixels of movement before it's a drag
+
+    // Preview shaft state
+    private previewShaft: THREE.Group | null = null;
+    private hoveredBall: Ball | null = null;
 
     constructor() {
         this.scene = new THREE.Scene();
@@ -81,7 +95,11 @@ class MagneticBuilder {
 
     private setupEventListeners(): void {
         window.addEventListener('resize', () => this.onWindowResize());
-        window.addEventListener('click', (e) => this.onClick(e));
+        
+        // Mouse events for both clicking and dragging
+        window.addEventListener('mousedown', (e) => this.onMouseDown(e));
+        window.addEventListener('mousemove', (e) => this.onMouseMove(e));
+        window.addEventListener('mouseup', (e) => this.onMouseUp(e));
 
         document.getElementById('add-ball')!.addEventListener('click', () => {
             this.addBall(new THREE.Vector3(0, 0.5, 0));
@@ -111,9 +129,99 @@ class MagneticBuilder {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    private onClick(event: MouseEvent): void {
+    private onMouseDown(event: MouseEvent): void {
         if (event.button !== 0) return; // Only left click
 
+        // Store the mouse down position for drag detection
+        this.mouseDownPosition.set(event.clientX, event.clientY);
+        this.hasDragged = false;
+
+        this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+
+        // Check for ball intersection (potential drag start)
+        const ballMeshes = this.balls.map(b => b.getMesh());
+        const ballIntersects = this.raycaster.intersectObjects(ballMeshes);
+
+        if (ballIntersects.length > 0 && !this.pendingShaft) {
+            // Only prepare for drag if not in shaft creation mode
+            const clickedBall = this.balls.find(b => b.getMesh() === ballIntersects[0].object);
+            if (clickedBall) {
+                this.prepareDrag(clickedBall, ballIntersects[0].point);
+            }
+        }
+    }
+
+    private onMouseMove(event: MouseEvent): void {
+        // Always update mouse position for hover preview
+        this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+        // Handle drag detection and execution
+        if (this.draggedBall) {
+            // Check if we've moved enough to start dragging
+            const dx = event.clientX - this.mouseDownPosition.x;
+            const dy = event.clientY - this.mouseDownPosition.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (!this.isDragging && distance >= this.DRAG_THRESHOLD) {
+                // Start actual dragging
+                this.startDrag();
+            }
+
+            if (this.isDragging) {
+                this.raycaster.setFromCamera(this.mouse, this.camera);
+
+                // Find intersection with drag plane
+                const intersection = new THREE.Vector3();
+                if (this.raycaster.ray.intersectPlane(this.dragPlane, intersection)) {
+                    // Calculate the new position for the dragged ball
+                    const newPosition = intersection.sub(this.dragOffset);
+                    
+                    // Calculate delta from original position
+                    const originalPos = this.dragStartPositions.get(this.draggedBall)!;
+                    const delta = newPosition.clone().sub(originalPos);
+
+                    // Move all balls in the assembly by the same delta
+                    this.moveAssembly(delta);
+                    
+                    // Update all shafts
+                    this.shafts.forEach(shaft => shaft.update());
+                }
+            }
+            
+            // Hide preview while dragging
+            this.hidePreviewShaft();
+            return;
+        }
+
+        // Handle hover preview (only when not in pending shaft mode)
+        if (!this.pendingShaft) {
+            this.updateHoverPreview();
+        } else {
+            this.hidePreviewShaft();
+        }
+    }
+
+    private onMouseUp(event: MouseEvent): void {
+        if (event.button !== 0) return;
+
+        if (this.isDragging) {
+            // Was dragging - just end the drag
+            this.endDrag();
+        } else if (this.draggedBall) {
+            // Was not dragging (didn't move enough) - treat as click
+            this.cancelDrag();
+            this.handleClick(event);
+        } else {
+            // Clicked on empty space or shaft end
+            this.handleClick(event);
+        }
+    }
+
+    private handleClick(event: MouseEvent): void {
         this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
         this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
@@ -304,7 +412,168 @@ class MagneticBuilder {
         this.shafts = [];
         this.pendingShaft = null;
         this.pendingBall = null;
+        this.hidePreviewShaft();
         document.getElementById('snap-info')!.style.display = 'none';
+    }
+
+    /**
+     * Update hover preview - shows transparent shaft when hovering over a ball
+     */
+    private updateHoverPreview(): void {
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        
+        // Check for ball intersection
+        const ballMeshes = this.balls.map(b => b.getMesh());
+        const intersects = this.raycaster.intersectObjects(ballMeshes);
+        
+        if (intersects.length > 0) {
+            const hitBall = this.balls.find(b => b.getMesh() === intersects[0].object);
+            const intersectionPoint = intersects[0].point;
+            
+            if (hitBall) {
+                // Create or update preview shaft
+                if (!this.previewShaft || this.previewShaft.userData.size !== this.selectedShaftSize) {
+                    // Need to create new preview (different size selected)
+                    this.hidePreviewShaft();
+                    this.previewShaft = Shaft.createPreview(this.selectedShaftSize);
+                    this.scene.add(this.previewShaft);
+                }
+                
+                // Calculate direction from ball center to intersection point
+                const direction = new THREE.Vector3()
+                    .subVectors(intersectionPoint, hitBall.getPosition())
+                    .normalize();
+                
+                // Update preview position and orientation
+                Shaft.updatePreview(this.previewShaft, hitBall.getPosition(), direction);
+                this.previewShaft.visible = true;
+                this.hoveredBall = hitBall;
+                return;
+            }
+        }
+        
+        // Not hovering over a ball - hide preview
+        this.hidePreviewShaft();
+    }
+
+    /**
+     * Hide the preview shaft
+     */
+    private hidePreviewShaft(): void {
+        if (this.previewShaft) {
+            this.previewShaft.visible = false;
+        }
+        this.hoveredBall = null;
+    }
+
+    /**
+     * Prepare for potential drag - store state but don't start dragging yet.
+     * Called on mousedown when clicking a ball.
+     */
+    private prepareDrag(ball: Ball, intersectionPoint: THREE.Vector3): void {
+        this.draggedBall = ball;
+        this.hasDragged = false;
+        
+        // Create a drag plane perpendicular to the camera
+        const cameraDirection = new THREE.Vector3();
+        this.camera.getWorldDirection(cameraDirection);
+        this.dragPlane.setFromNormalAndCoplanarPoint(cameraDirection, ball.getPosition());
+
+        // Calculate offset from ball center to intersection point projected onto drag plane
+        const ballPosOnPlane = new THREE.Vector3();
+        this.raycaster.ray.intersectPlane(this.dragPlane, ballPosOnPlane);
+        this.dragOffset.copy(ballPosOnPlane).sub(ball.getPosition());
+
+        // Store original positions of all connected balls
+        this.dragStartPositions.clear();
+        const connectedBalls = this.getConnectedAssembly(ball);
+        for (const b of connectedBalls) {
+            this.dragStartPositions.set(b, b.getPosition().clone());
+        }
+    }
+
+    /**
+     * Actually start dragging - called when mouse has moved beyond threshold.
+     * Assumes prepareDrag was already called.
+     */
+    private startDrag(): void {
+        if (!this.draggedBall) return;
+        
+        this.isDragging = true;
+        this.hasDragged = true;
+        
+        // Disable orbit controls while dragging
+        this.controls.enabled = false;
+
+        // Highlight the assembly being dragged
+        const connectedBalls = this.getConnectedAssembly(this.draggedBall);
+        for (const b of connectedBalls) {
+            b.highlight(true);
+        }
+
+        Logger.logAction('drag-start', {
+            ballIndex: this.balls.indexOf(this.draggedBall),
+            assemblySize: connectedBalls.size
+        });
+    }
+
+    /**
+     * Cancel a prepared drag - called when mouseup happens before drag threshold.
+     * This allows the click to be processed normally.
+     */
+    private cancelDrag(): void {
+        this.draggedBall = null;
+        this.dragStartPositions.clear();
+        this.hasDragged = false;
+    }
+
+    private endDrag(): void {
+        // Remove highlight from all balls
+        if (this.draggedBall) {
+            const connectedBalls = this.getConnectedAssembly(this.draggedBall);
+            for (const b of connectedBalls) {
+                b.highlight(false);
+            }
+        }
+
+        Logger.logAction('drag-end', {
+            ballIndex: this.draggedBall ? this.balls.indexOf(this.draggedBall) : -1
+        });
+
+        this.isDragging = false;
+        this.draggedBall = null;
+        this.dragStartPositions.clear();
+        this.hasDragged = false;
+        
+        // Re-enable orbit controls
+        this.controls.enabled = true;
+    }
+
+    private getConnectedAssembly(startBall: Ball): Set<Ball> {
+        const visited = new Set<Ball>();
+        const queue: Ball[] = [startBall];
+
+        while (queue.length > 0) {
+            const ball = queue.shift()!;
+            if (visited.has(ball)) continue;
+            visited.add(ball);
+
+            for (const connected of ball.getConnectedBalls()) {
+                if (!visited.has(connected)) {
+                    queue.push(connected);
+                }
+            }
+        }
+
+        return visited;
+    }
+
+    private moveAssembly(delta: THREE.Vector3): void {
+        // Move all balls in the assembly by delta from their original positions
+        for (const [ball, originalPos] of this.dragStartPositions) {
+            const newPos = originalPos.clone().add(delta);
+            ball.setPosition(newPos);
+        }
     }
 
     private animate(): void {
