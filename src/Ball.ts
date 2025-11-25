@@ -12,12 +12,13 @@ export class Ball {
     constructor(position: THREE.Vector3) {
         this.position = position.clone();
         
-        // Create metallic steel ball
+        // Create a friendly white ball with subtle sheen
         const geometry = new THREE.SphereGeometry(BALL_RADIUS, 32, 32);
         const material = new THREE.MeshStandardMaterial({
-            color: 0x888888,
-            metalness: 0.9,
-            roughness: 0.2,
+            color: 0xffffff,
+            metalness: 0.1,
+            roughness: 0.3,
+            envMapIntensity: 0.5,
         });
         
         this.mesh = new THREE.Mesh(geometry, material);

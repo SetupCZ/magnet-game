@@ -15,6 +15,7 @@ interface SavedShaft {
     startBallIndex: number;
     endBallIndex: number | null;
     direction: { x: number; y: number; z: number };
+    color: number;
 }
 
 interface SavedStructure {
@@ -823,7 +824,8 @@ class MagneticBuilder {
                 size: shaft.getSize(),
                 startBallIndex: startBall ? this.balls.indexOf(startBall) : -1,
                 endBallIndex: endBall ? this.balls.indexOf(endBall) : null,
-                direction: { x: direction.x, y: direction.y, z: direction.z }
+                direction: { x: direction.x, y: direction.y, z: direction.z },
+                color: shaft.getColor()
             };
         });
 
@@ -863,7 +865,7 @@ class MagneticBuilder {
                 savedShaft.direction.z
             );
             
-            const shaft = new Shaft(startBall.getPosition(), savedShaft.size, direction);
+            const shaft = new Shaft(startBall.getPosition(), savedShaft.size, direction, savedShaft.color);
             this.scene.add(shaft.getMesh());
             this.shafts.push(shaft);
             
