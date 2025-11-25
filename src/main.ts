@@ -5,6 +5,26 @@ import { Shaft, type ShaftSize } from './Shaft';
 import { ConstraintSolver } from './ConstraintSolver';
 import { Logger } from './Logger';
 
+// Types for save/load functionality
+interface SavedBall {
+    position: { x: number; y: number; z: number };
+}
+
+interface SavedShaft {
+    size: ShaftSize;
+    startBallIndex: number;
+    endBallIndex: number | null;
+    direction: { x: number; y: number; z: number };
+}
+
+interface SavedStructure {
+    id: string;
+    name: string;
+    timestamp: number;
+    balls: SavedBall[];
+    shafts: SavedShaft[];
+}
+
 class MagneticBuilder {
     private scene: THREE.Scene;
     private camera: THREE.PerspectiveCamera;
@@ -32,6 +52,14 @@ class MagneticBuilder {
     // Preview shaft state
     private previewShaft: THREE.Group | null = null;
     private hoveredBall: Ball | null = null;
+
+    // Mode state
+    private isDeleteMode: boolean = false;
+
+    // Save/Load state
+    private savedStructures: Map<string, SavedStructure> = new Map();
+    private selectedSaveId: string | null = null;
+    private readonly STORAGE_KEY = 'magnetic-builder-saves';
 
     constructor() {
         this.scene = new THREE.Scene();
@@ -121,6 +149,47 @@ class MagneticBuilder {
                 this.selectedShaftSize = target.dataset.size as ShaftSize;
             });
         });
+
+        // Mode buttons
+        document.getElementById('build-mode')!.addEventListener('click', () => {
+            this.setDeleteMode(false);
+        });
+
+        document.getElementById('delete-mode')!.addEventListener('click', () => {
+            this.setDeleteMode(true);
+        });
+
+        // Save/Load buttons
+        document.getElementById('save-new')!.addEventListener('click', () => {
+            this.saveNewStructure();
+        });
+
+        document.getElementById('save-current')!.addEventListener('click', () => {
+            this.updateSelectedStructure();
+        });
+
+        document.getElementById('export-json')!.addEventListener('click', () => {
+            this.exportToJson();
+        });
+
+        document.getElementById('import-file')!.addEventListener('click', () => {
+            document.getElementById('file-input')!.click();
+        });
+
+        document.getElementById('file-input')!.addEventListener('change', (e) => {
+            const input = e.target as HTMLInputElement;
+            if (input.files && input.files[0]) {
+                this.importFromFile(input.files[0]);
+                input.value = ''; // Reset for next use
+            }
+        });
+
+        document.getElementById('import-text')!.addEventListener('click', () => {
+            this.importFromText();
+        });
+
+        // Load saved structures from localStorage
+        this.loadSavedStructures();
     }
 
     private onWindowResize(): void {
@@ -197,8 +266,8 @@ class MagneticBuilder {
             return;
         }
 
-        // Handle hover preview (only when not in pending shaft mode)
-        if (!this.pendingShaft) {
+        // Handle hover preview (only when in build mode and not creating a shaft)
+        if (!this.pendingShaft && !this.isDeleteMode) {
             this.updateHoverPreview();
         } else {
             this.hidePreviewShaft();
@@ -226,6 +295,12 @@ class MagneticBuilder {
         this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
         this.raycaster.setFromCamera(this.mouse, this.camera);
+
+        // In delete mode, handle deletions
+        if (this.isDeleteMode) {
+            this.handleDeleteClick();
+            return;
+        }
 
         // First check for shaft end clicks (higher priority)
         const shaftEndMeshes: THREE.Object3D[] = [];
@@ -257,6 +332,104 @@ class MagneticBuilder {
                 const intersectionPoint = ballIntersects[0].point;
                 this.handleBallClick(clickedBall, intersectionPoint);
             }
+        }
+    }
+
+    private handleDeleteClick(): void {
+        // Check for shaft clicks first (the cylinder mesh)
+        const shaftMeshes = this.shafts.map(s => s.getMesh());
+        const shaftIntersects = this.raycaster.intersectObjects(shaftMeshes, true);
+        
+        if (shaftIntersects.length > 0) {
+            // Find the shaft from the intersected object
+            let shaft: Shaft | null = null;
+            let obj = shaftIntersects[0].object;
+            while (obj && !shaft) {
+                if (obj.userData.shaft) {
+                    shaft = obj.userData.shaft as Shaft;
+                }
+                obj = obj.parent as THREE.Object3D;
+            }
+            
+            if (shaft) {
+                this.deleteShaft(shaft);
+                return;
+            }
+        }
+
+        // Then check for ball clicks
+        const ballMeshes = this.balls.map(b => b.getMesh());
+        const ballIntersects = this.raycaster.intersectObjects(ballMeshes);
+
+        if (ballIntersects.length > 0) {
+            const clickedBall = this.balls.find(b => b.getMesh() === ballIntersects[0].object);
+            if (clickedBall) {
+                this.deleteBall(clickedBall);
+            }
+        }
+    }
+
+    private deleteShaft(shaft: Shaft): void {
+        // Disconnect from balls
+        shaft.disconnect();
+        
+        // Remove from scene
+        this.scene.remove(shaft.getMesh());
+        
+        // Remove from array
+        const index = this.shafts.indexOf(shaft);
+        if (index > -1) {
+            this.shafts.splice(index, 1);
+        }
+        
+        // Remove stranded balls (balls with no connections)
+        this.removeStrandedBalls();
+        
+        this.showSnapInfo('Shaft deleted', 1000, 'info');
+        Logger.logAction('delete-shaft', { remainingShafts: this.shafts.length });
+    }
+
+    private deleteBall(ball: Ball): void {
+        // Get connected shafts before removing
+        const connectedShafts = [...ball.getConnectedShafts()];
+        
+        // Disconnect ball from all shafts (but keep the shafts)
+        for (const shaft of connectedShafts) {
+            if (shaft.getStartBall() === ball) {
+                shaft.disconnectStart();
+            } else if (shaft.getEndBall() === ball) {
+                shaft.disconnectEnd();
+            }
+            shaft.update();
+        }
+        
+        // Remove ball from scene
+        this.scene.remove(ball.getMesh());
+        
+        // Remove from array
+        const index = this.balls.indexOf(ball);
+        if (index > -1) {
+            this.balls.splice(index, 1);
+        }
+        
+        this.showSnapInfo('Ball deleted - click shaft ends to reconnect', 2000, 'info');
+        Logger.logAction('delete-ball', { remainingBalls: this.balls.length });
+    }
+
+    private removeStrandedBalls(): void {
+        // Find balls with no connections
+        const strandedBalls = this.balls.filter(ball => ball.getConnectedShafts().length === 0);
+        
+        for (const ball of strandedBalls) {
+            this.scene.remove(ball.getMesh());
+            const index = this.balls.indexOf(ball);
+            if (index > -1) {
+                this.balls.splice(index, 1);
+            }
+        }
+        
+        if (strandedBalls.length > 0) {
+            Logger.logAction('remove-stranded-balls', { count: strandedBalls.length });
         }
     }
 
@@ -302,6 +475,7 @@ class MagneticBuilder {
                     this.pendingShaft.attachToEnd(ball);
                     Logger.logPositions(this.balls, this.shafts);
                     this.showSnapInfo('Shaft connected!', 1000, 'success');
+                    this.centerCameraOnStructure();
                 } else {
                     // Reorient shaft and adjust positions using constraint solver
                     this.showSnapInfo('Adjusting structure...', 0, 'warning');
@@ -325,6 +499,7 @@ class MagneticBuilder {
                         this.pendingShaft.attachToEnd(ball);
                         Logger.logPositions(this.balls, this.shafts);
                         this.showSnapInfo(result.message, 2000, 'success');
+                        this.centerCameraOnStructure();
                     } else {
                         // Cannot connect - show error and remove shaft
                         Logger.logError('Connection failed', new Error(result.message));
@@ -370,6 +545,7 @@ class MagneticBuilder {
             shaft.attachToEnd(newBall);
             Logger.logPositions(this.balls, this.shafts);
             this.showSnapInfo('Ball created and connected!', 1000, 'success');
+            this.centerCameraOnStructure();
             
             // Clear pending state so user can create new shaft
             this.pendingShaft = null;
@@ -574,6 +750,329 @@ class MagneticBuilder {
             const newPos = originalPos.clone().add(delta);
             ball.setPosition(newPos);
         }
+    }
+
+    // ==================== Mode Management ====================
+
+    private setDeleteMode(enabled: boolean): void {
+        this.isDeleteMode = enabled;
+        
+        // Update UI
+        const buildBtn = document.getElementById('build-mode')!;
+        const deleteBtn = document.getElementById('delete-mode')!;
+        
+        if (enabled) {
+            buildBtn.classList.remove('active');
+            deleteBtn.classList.add('active');
+            this.hidePreviewShaft();
+            // Cancel any pending shaft
+            if (this.pendingShaft) {
+                this.scene.remove(this.pendingShaft.getMesh());
+                const index = this.shafts.indexOf(this.pendingShaft);
+                if (index > -1) {
+                    this.shafts.splice(index, 1);
+                }
+                this.pendingShaft = null;
+                this.pendingBall = null;
+            }
+            this.showSnapInfo('Delete mode: Click shaft or ball to delete', 2000, 'warning');
+        } else {
+            deleteBtn.classList.remove('active');
+            buildBtn.classList.add('active');
+            this.showSnapInfo('Build mode', 1000, 'info');
+        }
+    }
+
+    // ==================== Camera Centering ====================
+
+    private centerCameraOnStructure(): void {
+        if (this.balls.length === 0) return;
+        
+        // Calculate center of all balls
+        const center = new THREE.Vector3();
+        for (const ball of this.balls) {
+            center.add(ball.getPosition());
+        }
+        center.divideScalar(this.balls.length);
+        
+        // Update orbit controls target
+        this.controls.target.copy(center);
+        this.controls.update();
+    }
+
+    // ==================== Save/Load System ====================
+
+    private serializeStructure(): SavedStructure {
+        const balls: SavedBall[] = this.balls.map(ball => ({
+            position: {
+                x: ball.getPosition().x,
+                y: ball.getPosition().y,
+                z: ball.getPosition().z
+            }
+        }));
+
+        const shafts: SavedShaft[] = this.shafts.map(shaft => {
+            const startBall = shaft.getStartBall();
+            const endBall = shaft.getEndBall();
+            
+            // Get direction from the shaft mesh orientation
+            const direction = new THREE.Vector3(0, 1, 0);
+            direction.applyQuaternion(shaft.getMesh().quaternion);
+            
+            return {
+                size: shaft.getSize(),
+                startBallIndex: startBall ? this.balls.indexOf(startBall) : -1,
+                endBallIndex: endBall ? this.balls.indexOf(endBall) : null,
+                direction: { x: direction.x, y: direction.y, z: direction.z }
+            };
+        });
+
+        return {
+            id: crypto.randomUUID(),
+            name: '',
+            timestamp: Date.now(),
+            balls,
+            shafts
+        };
+    }
+
+    private deserializeStructure(data: SavedStructure): void {
+        // Clear current structure
+        this.clearAll();
+        
+        // Create balls
+        for (const savedBall of data.balls) {
+            const position = new THREE.Vector3(
+                savedBall.position.x,
+                savedBall.position.y,
+                savedBall.position.z
+            );
+            this.addBall(position);
+        }
+        
+        // Create shafts and connect them
+        for (const savedShaft of data.shafts) {
+            if (savedShaft.startBallIndex < 0 || savedShaft.startBallIndex >= this.balls.length) {
+                continue;
+            }
+            
+            const startBall = this.balls[savedShaft.startBallIndex];
+            const direction = new THREE.Vector3(
+                savedShaft.direction.x,
+                savedShaft.direction.y,
+                savedShaft.direction.z
+            );
+            
+            const shaft = new Shaft(startBall.getPosition(), savedShaft.size, direction);
+            this.scene.add(shaft.getMesh());
+            this.shafts.push(shaft);
+            
+            shaft.attachToStart(startBall);
+            
+            if (savedShaft.endBallIndex !== null && 
+                savedShaft.endBallIndex >= 0 && 
+                savedShaft.endBallIndex < this.balls.length) {
+                const endBall = this.balls[savedShaft.endBallIndex];
+                shaft.attachToEnd(endBall);
+            }
+        }
+        
+        // Center camera on the loaded structure
+        this.centerCameraOnStructure();
+    }
+
+    private loadSavedStructures(): void {
+        try {
+            const saved = localStorage.getItem(this.STORAGE_KEY);
+            if (saved) {
+                const structures: SavedStructure[] = JSON.parse(saved);
+                this.savedStructures.clear();
+                for (const structure of structures) {
+                    this.savedStructures.set(structure.id, structure);
+                }
+            }
+        } catch (e) {
+            console.error('Failed to load saved structures:', e);
+        }
+        this.updateSavedStructuresList();
+    }
+
+    private persistSavedStructures(): void {
+        try {
+            const structures = Array.from(this.savedStructures.values());
+            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(structures));
+        } catch (e) {
+            console.error('Failed to save structures:', e);
+            this.showSnapInfo('Failed to save to localStorage', 2000, 'error');
+        }
+    }
+
+    private updateSavedStructuresList(): void {
+        const listContainer = document.getElementById('saved-list')!;
+        listContainer.innerHTML = '';
+        
+        if (this.savedStructures.size === 0) {
+            listContainer.innerHTML = '<div style="color: #888; font-size: 12px;">No saved structures</div>';
+            return;
+        }
+        
+        // Sort by timestamp (newest first)
+        const sorted = Array.from(this.savedStructures.values())
+            .sort((a, b) => b.timestamp - a.timestamp);
+        
+        for (const structure of sorted) {
+            const item = document.createElement('div');
+            item.className = 'saved-item' + (this.selectedSaveId === structure.id ? ' selected' : '');
+            item.innerHTML = `
+                <span class="saved-item-name">${structure.name || 'Unnamed'}</span>
+                <div class="saved-item-actions">
+                    <button class="load-btn" style="background: #4CAF50;">Load</button>
+                    <button class="delete-btn" style="background: #f44336;">×</button>
+                </div>
+            `;
+            
+            // Click to select
+            item.addEventListener('click', (e) => {
+                if ((e.target as HTMLElement).tagName !== 'BUTTON') {
+                    this.selectedSaveId = structure.id;
+                    (document.getElementById('structure-name') as HTMLInputElement).value = structure.name;
+                    this.updateSavedStructuresList();
+                }
+            });
+            
+            // Load button
+            item.querySelector('.load-btn')!.addEventListener('click', () => {
+                this.deserializeStructure(structure);
+                this.selectedSaveId = structure.id;
+                (document.getElementById('structure-name') as HTMLInputElement).value = structure.name;
+                this.updateSavedStructuresList();
+                this.showSnapInfo(`Loaded: ${structure.name || 'Unnamed'}`, 1500, 'success');
+            });
+            
+            // Delete button
+            item.querySelector('.delete-btn')!.addEventListener('click', () => {
+                this.savedStructures.delete(structure.id);
+                if (this.selectedSaveId === structure.id) {
+                    this.selectedSaveId = null;
+                }
+                this.persistSavedStructures();
+                this.updateSavedStructuresList();
+                this.showSnapInfo('Structure deleted', 1000, 'info');
+            });
+            
+            listContainer.appendChild(item);
+        }
+    }
+
+    private saveNewStructure(): void {
+        const nameInput = document.getElementById('structure-name') as HTMLInputElement;
+        const name = nameInput.value.trim() || `Structure ${this.savedStructures.size + 1}`;
+        
+        const structure = this.serializeStructure();
+        structure.name = name;
+        
+        this.savedStructures.set(structure.id, structure);
+        this.selectedSaveId = structure.id;
+        
+        this.persistSavedStructures();
+        this.updateSavedStructuresList();
+        this.showSnapInfo(`Saved: ${name}`, 1500, 'success');
+    }
+
+    private updateSelectedStructure(): void {
+        if (!this.selectedSaveId) {
+            this.showSnapInfo('Select a structure first', 2000, 'warning');
+            return;
+        }
+        
+        const existing = this.savedStructures.get(this.selectedSaveId);
+        if (!existing) {
+            this.showSnapInfo('Selected structure not found', 2000, 'error');
+            return;
+        }
+        
+        const nameInput = document.getElementById('structure-name') as HTMLInputElement;
+        const name = nameInput.value.trim() || existing.name;
+        
+        const structure = this.serializeStructure();
+        structure.id = this.selectedSaveId;
+        structure.name = name;
+        
+        this.savedStructures.set(structure.id, structure);
+        
+        this.persistSavedStructures();
+        this.updateSavedStructuresList();
+        this.showSnapInfo(`Updated: ${name}`, 1500, 'success');
+    }
+
+    private exportToJson(): void {
+        const structure = this.serializeStructure();
+        const nameInput = document.getElementById('structure-name') as HTMLInputElement;
+        structure.name = nameInput.value.trim() || 'Exported Structure';
+        
+        const json = JSON.stringify(structure, null, 2);
+        
+        // Create download
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${structure.name.replace(/[^a-z0-9]/gi, '_')}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        this.showSnapInfo('Exported to JSON file', 1500, 'success');
+    }
+
+    private importFromFile(file: File): void {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const json = e.target?.result as string;
+                const structure = JSON.parse(json) as SavedStructure;
+                this.validateAndImport(structure);
+            } catch (err) {
+                this.showSnapInfo('Invalid JSON file', 2000, 'error');
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    private importFromText(): void {
+        const textarea = document.getElementById('json-input') as HTMLTextAreaElement;
+        const json = textarea.value.trim();
+        
+        if (!json) {
+            this.showSnapInfo('Paste JSON first', 2000, 'warning');
+            return;
+        }
+        
+        try {
+            const structure = JSON.parse(json) as SavedStructure;
+            this.validateAndImport(structure);
+            textarea.value = '';
+        } catch (err) {
+            this.showSnapInfo('Invalid JSON format', 2000, 'error');
+        }
+    }
+
+    private validateAndImport(structure: SavedStructure): void {
+        // Basic validation
+        if (!structure.balls || !Array.isArray(structure.balls)) {
+            this.showSnapInfo('Invalid structure: missing balls', 2000, 'error');
+            return;
+        }
+        if (!structure.shafts || !Array.isArray(structure.shafts)) {
+            this.showSnapInfo('Invalid structure: missing shafts', 2000, 'error');
+            return;
+        }
+        
+        // Generate new ID for imported structure
+        structure.id = crypto.randomUUID();
+        structure.timestamp = Date.now();
+        
+        this.deserializeStructure(structure);
+        this.showSnapInfo(`Imported: ${structure.name || 'Unnamed'}`, 1500, 'success');
     }
 
     private animate(): void {

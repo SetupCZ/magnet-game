@@ -218,6 +218,50 @@ export class Shaft {
         return this.startBall !== null && this.endBall !== null;
     }
 
+    /**
+     * Disconnect the shaft from both balls
+     */
+    public disconnect(): void {
+        if (this.startBall) {
+            this.startBall.removeConnectedShaft(this);
+            this.startBall = null;
+        }
+        if (this.endBall) {
+            this.endBall.removeConnectedShaft(this);
+            this.endBall = null;
+        }
+    }
+
+    /**
+     * Disconnect only the start ball, keeping the shaft attached to the end ball
+     * The end ball becomes the new start ball
+     */
+    public disconnectStart(): void {
+        if (this.startBall) {
+            this.startBall.removeConnectedShaft(this);
+            
+            // If there's an end ball, make it the new start
+            if (this.endBall) {
+                this.startBall = this.endBall;
+                this.endBall = null;
+                // Reverse direction
+                this.startDirection.negate();
+            } else {
+                this.startBall = null;
+            }
+        }
+    }
+
+    /**
+     * Disconnect only the end ball
+     */
+    public disconnectEnd(): void {
+        if (this.endBall) {
+            this.endBall.removeConnectedShaft(this);
+            this.endBall = null;
+        }
+    }
+
     // Get the world position of the free end of the shaft
     public getFreeEndPosition(): THREE.Vector3 | null {
         if (this.isFullyConnected() || !this.startBall) return null;
