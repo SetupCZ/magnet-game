@@ -462,9 +462,97 @@
         .hidden-input {
             display: none;
         }
+
+        /* Mobile menu toggle button */
+        #mobile-menu-toggle {
+            display: none;
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            width: 44px;
+            height: 44px;
+            background: rgba(0, 0, 0, 0.8);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            padding: 0;
+            line-height: 44px;
+            text-align: center;
+        }
+
+        #mobile-menu-toggle:hover {
+            background: rgba(0, 0, 0, 0.9);
+        }
+
+        /* Mobile styles */
+        @media (max-width: 768px) {
+            #mobile-menu-toggle {
+                display: block;
+            }
+
+            #controls,
+            #save-panel,
+            #info {
+                transition: transform 0.3s ease, opacity 0.3s ease;
+            }
+
+            /* Hidden state for mobile */
+            body.mobile-ui-hidden #controls {
+                transform: translateX(-100%);
+                opacity: 0;
+                pointer-events: none;
+            }
+
+            body.mobile-ui-hidden #save-panel {
+                transform: translateX(100%);
+                opacity: 0;
+                pointer-events: none;
+            }
+
+            body.mobile-ui-hidden #info {
+                transform: translateY(100%);
+                opacity: 0;
+                pointer-events: none;
+            }
+
+            /* Adjust controls for mobile */
+            #controls {
+                top: 60px;
+                left: 10px;
+                padding: 15px;
+                max-width: calc(100vw - 20px);
+            }
+
+            #controls h2 {
+                font-size: 16px;
+                margin-bottom: 10px;
+            }
+
+            #save-panel {
+                top: 60px;
+                right: 10px;
+                max-width: calc(100vw - 20px);
+            }
+
+            #info {
+                left: 10px;
+                right: 10px;
+                bottom: 10px;
+                max-width: none;
+            }
+
+            #snap-info {
+                top: 60px;
+            }
+        }
     </style>
 </head>
-<body>
+<body class="mobile-ui-hidden">
+    <button id="mobile-menu-toggle" aria-label="Toggle menu">&#9776;</button>
     <div id="canvas-container"></div>
     
     <div id="controls">
@@ -571,6 +659,14 @@
     </div>
 
     <div id="snap-info"></div>
+
+    <script>
+        // Mobile menu toggle
+        document.getElementById('mobile-menu-toggle').addEventListener('click', function() {
+            document.body.classList.toggle('mobile-ui-hidden');
+            this.innerHTML = document.body.classList.contains('mobile-ui-hidden') ? '&#9776;' : '&#10005;';
+        });
+    </script>
 
     <script type="module" src="./src/main.ts"></script>
 </body>
