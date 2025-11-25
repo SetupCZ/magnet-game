@@ -61,6 +61,9 @@ class MagneticBuilder {
   private selectedSaveId: string | null = null;
   private readonly STORAGE_KEY = 'magnetic-builder-saves';
 
+  // Grid snapping state
+  private isShiftHeld: boolean = false;
+
   constructor() {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x1a1a1a);
@@ -124,6 +127,10 @@ class MagneticBuilder {
   private setupEventListeners(): void {
     window.addEventListener('resize', () => this.onWindowResize());
 
+    // Keyboard events for grid snapping modifier
+    window.addEventListener('keydown', (e) => this.onKeyDown(e));
+    window.addEventListener('keyup', (e) => this.onKeyUp(e));
+
     // Mouse events for both clicking and dragging
     window.addEventListener('mousedown', (e) => this.onMouseDown(e));
     window.addEventListener('mousemove', (e) => this.onMouseMove(e));
@@ -150,43 +157,317 @@ class MagneticBuilder {
       });
     });
 
-    // Save/Load buttons
-    document.getElementById('save-new')!.addEventListener('click', () => {
-      this.saveNewStructure();
+    // Save/Load UI setup
+    this.setupSaveLoadUI();
+
+    // Load saved structures from localStorage
+    this.loadSavedStructures();
+  }
+
+  private setupSaveLoadUI(): void {
+    // Panel toggle (collapse/expand)
+    document.getElementById('panel-toggle')!.addEventListener('click', () => {
+      document.getElementById('save-panel')!.classList.toggle('collapsed');
     });
 
-    document.getElementById('save-current')!.addEventListener('click', () => {
-      this.updateSelectedStructure();
+    // Single Save button - smart behavior
+    document.getElementById('save-btn')!.addEventListener('click', () => {
+      this.handleSave();
     });
 
-    document.getElementById('export-json')!.addEventListener('click', () => {
-      this.exportToJson();
+    // Import button - show import modal
+    document.getElementById('import-btn')!.addEventListener('click', () => {
+      this.showModal('import-modal');
     });
 
-    document.getElementById('import-file')!.addEventListener('click', () => {
+    // Export button - show export modal
+    document.getElementById('export-btn')!.addEventListener('click', () => {
+      this.showModal('export-modal');
+    });
+
+    // Name modal events
+    document.getElementById('name-cancel')!.addEventListener('click', () => {
+      this.hideModal('name-modal');
+    });
+
+    document.getElementById('name-confirm')!.addEventListener('click', () => {
+      this.confirmSaveWithName();
+    });
+
+    // Allow Enter key to confirm save name
+    document.getElementById('structure-name-input')!.addEventListener('keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'Enter') {
+        this.confirmSaveWithName();
+      }
+    });
+
+    // Import modal events
+    document.getElementById('import-cancel')!.addEventListener('click', () => {
+      this.hideModal('import-modal');
+    });
+
+    document.getElementById('import-confirm')!.addEventListener('click', () => {
+      this.confirmImport();
+    });
+
+    // File drop zone
+    const dropZone = document.getElementById('file-drop-zone')!;
+    dropZone.addEventListener('click', () => {
       document.getElementById('file-input')!.click();
+    });
+
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      const files = (e as DragEvent).dataTransfer?.files;
+      if (files && files[0]) {
+        this.handleImportFile(files[0]);
+      }
     });
 
     document.getElementById('file-input')!.addEventListener('change', (e) => {
       const input = e.target as HTMLInputElement;
       if (input.files && input.files[0]) {
-        this.importFromFile(input.files[0]);
+        this.handleImportFile(input.files[0]);
         input.value = ''; // Reset for next use
       }
     });
 
-    document.getElementById('import-text')!.addEventListener('click', () => {
-      this.importFromText();
+    // Export modal events
+    document.getElementById('export-cancel')!.addEventListener('click', () => {
+      this.hideModal('export-modal');
     });
 
-    // Load saved structures from localStorage
-    this.loadSavedStructures();
+    document.getElementById('export-file')!.addEventListener('click', () => {
+      this.exportToFile();
+      this.hideModal('export-modal');
+    });
+
+    document.getElementById('export-clipboard')!.addEventListener('click', () => {
+      this.exportToClipboard();
+      this.hideModal('export-modal');
+    });
+
+    // Close modals when clicking overlay
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          (overlay as HTMLElement).classList.remove('visible');
+        }
+      });
+    });
+  }
+
+  private showModal(id: string): void {
+    document.getElementById(id)!.classList.add('visible');
+    // Focus first input if exists
+    const input = document.querySelector(`#${id} input[type="text"], #${id} textarea`) as HTMLElement;
+    if (input) {
+      setTimeout(() => input.focus(), 100);
+    }
+  }
+
+  private hideModal(id: string): void {
+    document.getElementById(id)!.classList.remove('visible');
+  }
+
+  private handleSave(): void {
+    if (this.selectedSaveId) {
+      // Update existing structure
+      this.updateSelectedStructure();
+    } else {
+      // New structure - ask for name
+      (document.getElementById('structure-name-input') as HTMLInputElement).value = '';
+      this.showModal('name-modal');
+    }
+  }
+
+  private confirmSaveWithName(): void {
+    const nameInput = document.getElementById('structure-name-input') as HTMLInputElement;
+    const name = nameInput.value.trim() || `Structure ${this.savedStructures.size + 1}`;
+    
+    const structure = this.serializeStructure();
+    structure.name = name;
+
+    this.savedStructures.set(structure.id, structure);
+    this.selectedSaveId = structure.id;
+
+    this.persistSavedStructures();
+    this.updateSavedStructuresList();
+    this.updateCurrentStructureDisplay();
+    this.hideModal('name-modal');
+    this.showSnapInfo(`Saved: ${name}`, 1500, 'success');
+  }
+
+  private confirmImport(): void {
+    const textarea = document.getElementById('json-input') as HTMLTextAreaElement;
+    const json = textarea.value.trim();
+
+    if (!json) {
+      this.showSnapInfo('Paste JSON first', 2000, 'warning');
+      return;
+    }
+
+    try {
+      const structure = JSON.parse(json) as SavedStructure;
+      this.validateAndImport(structure);
+      textarea.value = '';
+      this.hideModal('import-modal');
+    } catch (err) {
+      this.showSnapInfo('Invalid JSON format', 2000, 'error');
+    }
+  }
+
+  private handleImportFile(file: File): void {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const json = e.target?.result as string;
+        const structure = JSON.parse(json) as SavedStructure;
+        this.validateAndImport(structure);
+        this.hideModal('import-modal');
+      } catch (err) {
+        this.showSnapInfo('Invalid JSON file', 2000, 'error');
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  private exportToFile(): void {
+    const structure = this.serializeStructure();
+    const currentName = this.selectedSaveId 
+      ? this.savedStructures.get(this.selectedSaveId)?.name || 'Structure'
+      : 'Structure';
+    structure.name = currentName;
+
+    const json = JSON.stringify(structure, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${currentName.replace(/[^a-z0-9]/gi, '_')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    this.showSnapInfo('Exported to file', 1500, 'success');
+  }
+
+  private exportToClipboard(): void {
+    const structure = this.serializeStructure();
+    const currentName = this.selectedSaveId 
+      ? this.savedStructures.get(this.selectedSaveId)?.name || 'Structure'
+      : 'Structure';
+    structure.name = currentName;
+
+    const json = JSON.stringify(structure, null, 2);
+    navigator.clipboard.writeText(json).then(() => {
+      this.showSnapInfo('Copied to clipboard', 1500, 'success');
+    }).catch(() => {
+      this.showSnapInfo('Failed to copy', 2000, 'error');
+    });
+  }
+
+  private updateCurrentStructureDisplay(): void {
+    const nameEl = document.getElementById('current-name')!;
+    if (this.selectedSaveId) {
+      const structure = this.savedStructures.get(this.selectedSaveId);
+      nameEl.textContent = structure?.name || 'Unknown';
+      nameEl.classList.remove('unsaved');
+    } else {
+      nameEl.textContent = 'Unsaved';
+      nameEl.classList.add('unsaved');
+    }
   }
 
   private onWindowResize(): void {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  private onKeyDown(event: KeyboardEvent): void {
+    if (event.key === 'Shift' && !this.isShiftHeld) {
+      this.isShiftHeld = true;
+      // Update preview immediately if hovering over a ball
+      if (this.hoveredBall && !this.pendingShaft) {
+        this.updateHoverPreview();
+      }
+    }
+  }
+
+  private onKeyUp(event: KeyboardEvent): void {
+    if (event.key === 'Shift') {
+      this.isShiftHeld = false;
+      // Update preview immediately if hovering over a ball
+      if (this.hoveredBall && !this.pendingShaft) {
+        this.updateHoverPreview();
+      }
+    }
+  }
+
+  /**
+   * Snap a direction vector to the nearest 3D grid direction.
+   * Supports 26 directions: 6 cardinal (axes), 12 face diagonals, 8 space diagonals.
+   */
+  private snapDirectionToGrid(direction: THREE.Vector3): THREE.Vector3 {
+    // Define all 26 possible grid directions (normalized)
+    const gridDirections: THREE.Vector3[] = [
+      // 6 cardinal directions (along axes)
+      new THREE.Vector3(1, 0, 0),
+      new THREE.Vector3(-1, 0, 0),
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(0, -1, 0),
+      new THREE.Vector3(0, 0, 1),
+      new THREE.Vector3(0, 0, -1),
+      
+      // 12 face diagonals (edges of cube, on axis-aligned planes)
+      new THREE.Vector3(1, 1, 0).normalize(),
+      new THREE.Vector3(1, -1, 0).normalize(),
+      new THREE.Vector3(-1, 1, 0).normalize(),
+      new THREE.Vector3(-1, -1, 0).normalize(),
+      new THREE.Vector3(1, 0, 1).normalize(),
+      new THREE.Vector3(1, 0, -1).normalize(),
+      new THREE.Vector3(-1, 0, 1).normalize(),
+      new THREE.Vector3(-1, 0, -1).normalize(),
+      new THREE.Vector3(0, 1, 1).normalize(),
+      new THREE.Vector3(0, 1, -1).normalize(),
+      new THREE.Vector3(0, -1, 1).normalize(),
+      new THREE.Vector3(0, -1, -1).normalize(),
+      
+      // 8 space diagonals (corners of cube)
+      new THREE.Vector3(1, 1, 1).normalize(),
+      new THREE.Vector3(1, 1, -1).normalize(),
+      new THREE.Vector3(1, -1, 1).normalize(),
+      new THREE.Vector3(1, -1, -1).normalize(),
+      new THREE.Vector3(-1, 1, 1).normalize(),
+      new THREE.Vector3(-1, 1, -1).normalize(),
+      new THREE.Vector3(-1, -1, 1).normalize(),
+      new THREE.Vector3(-1, -1, -1).normalize(),
+    ];
+
+    // Find the grid direction with the highest dot product (closest alignment)
+    let bestDirection = gridDirections[0]!;
+    let bestDot = direction.dot(bestDirection);
+
+    for (let i = 1; i < gridDirections.length; i++) {
+      const gridDir = gridDirections[i]!;
+      const dot = direction.dot(gridDir);
+      if (dot > bestDot) {
+        bestDot = dot;
+        bestDirection = gridDir;
+      }
+    }
+
+    return bestDirection.clone();
   }
 
   private onMouseDown(event: MouseEvent): void {
@@ -207,9 +488,12 @@ class MagneticBuilder {
 
     if (ballIntersects.length > 0 && !this.pendingShaft) {
       // Only prepare for drag if not in shaft creation mode
-      const clickedBall = this.balls.find(b => b.getMesh() === ballIntersects[0].object);
-      if (clickedBall) {
-        this.prepareDrag(clickedBall, ballIntersects[0].point);
+      const firstHit = ballIntersects[0];
+      if (firstHit) {
+        const clickedBall = this.balls.find(b => b.getMesh() === firstHit.object);
+        if (clickedBall) {
+          this.prepareDrag(clickedBall, firstHit.point);
+        }
       }
     }
   }
@@ -314,9 +598,9 @@ class MagneticBuilder {
     // Single raycast to find closest hit
     const intersects = this.raycaster.intersectObjects(allObjects, true);
     
-    if (intersects.length === 0) return;
-    
     const closest = intersects[0];
+    if (!closest) return;
+    
     const hitObject = closest.object;
     
     // Determine what was hit by traversing up the parent chain
@@ -400,15 +684,24 @@ class MagneticBuilder {
         selectedShaftSize: this.selectedShaftSize
       });
 
-      const direction = new THREE.Vector3()
+      let direction = new THREE.Vector3()
         .subVectors(intersectionPoint, ball.getPosition())
         .normalize();
+
+      // Apply grid snapping if shift is held
+      if (this.isShiftHeld) {
+        direction = this.snapDirectionToGrid(direction);
+      }
 
       const shaft = new Shaft(ball.getPosition(), this.selectedShaftSize, direction);
       this.scene.add(shaft.getMesh());
       this.shafts.push(shaft);
 
-      shaft.attachToStart(ball, intersectionPoint);
+      // Calculate the connection point on the ball surface using the (possibly snapped) direction
+      const connectionPoint = ball.getPosition().clone().add(
+        direction.clone().multiplyScalar(BALL_RADIUS)
+      );
+      shaft.attachToStart(ball, connectionPoint);
       this.pendingShaft = shaft;
       this.pendingBall = ball;
 
@@ -543,7 +836,9 @@ class MagneticBuilder {
     this.pendingShaft = null;
     this.pendingBall = null;
     this.hoveredShaftForDeletion = null;
+    this.selectedSaveId = null;
     this.hidePreviewShaft();
+    this.updateCurrentStructureDisplay();
     document.getElementById('snap-info')!.style.display = 'none';
   }
 
@@ -574,12 +869,12 @@ class MagneticBuilder {
       this.hoveredShaftForDeletion = null;
     }
     
-    if (intersects.length === 0) {
+    const closest = intersects[0];
+    if (!closest) {
       this.hidePreviewShaft();
       return;
     }
     
-    const closest = intersects[0];
     const hitObject = closest.object;
     
     // Check if we hit a ball - show shaft preview
@@ -593,9 +888,14 @@ class MagneticBuilder {
       }
 
       // Calculate direction from ball center to intersection point
-      const direction = new THREE.Vector3()
+      let direction = new THREE.Vector3()
         .subVectors(closest.point, hitBall.getPosition())
         .normalize();
+
+      // If shift is held, snap direction to 3D grid
+      if (this.isShiftHeld) {
+        direction = this.snapDirectionToGrid(direction);
+      }
 
       // Update preview position and orientation
       Shaft.updatePreview(this.previewShaft, hitBall.getPosition(), direction);
@@ -803,6 +1103,8 @@ class MagneticBuilder {
       }
 
       const startBall = this.balls[savedShaft.startBallIndex];
+      if (!startBall) continue;
+      
       const direction = new THREE.Vector3(
         savedShaft.direction.x,
         savedShaft.direction.y,
@@ -819,7 +1121,7 @@ class MagneticBuilder {
         savedShaft.endBallIndex >= 0 &&
         savedShaft.endBallIndex < this.balls.length) {
         const endBall = this.balls[savedShaft.endBallIndex];
-        shaft.attachToEnd(endBall);
+        if (endBall) shaft.attachToEnd(endBall);
       }
     }
 
@@ -839,6 +1141,7 @@ class MagneticBuilder {
       console.error('Failed to load saved structures:', e);
     }
     this.updateSavedStructuresList();
+    this.updateCurrentStructureDisplay();
   }
 
   private persistSavedStructures(): void {
@@ -856,7 +1159,7 @@ class MagneticBuilder {
     listContainer.innerHTML = '';
 
     if (this.savedStructures.size === 0) {
-      listContainer.innerHTML = '<div style="color: #888; font-size: 12px;">No saved structures</div>';
+      listContainer.innerHTML = '<div style="color: #666; font-size: 11px; text-align: center; padding: 10px;">No saved structures yet</div>';
       return;
     }
 
@@ -870,34 +1173,28 @@ class MagneticBuilder {
       item.innerHTML = `
                 <span class="saved-item-name">${structure.name || 'Unnamed'}</span>
                 <div class="saved-item-actions">
-                    <button class="load-btn" style="background: #4CAF50;">Load</button>
-                    <button class="delete-btn" style="background: #f44336;">×</button>
+                    <button class="delete-btn">×</button>
                 </div>
             `;
 
-      // Click to select
+      // Click to load
       item.addEventListener('click', (e) => {
         if ((e.target as HTMLElement).tagName !== 'BUTTON') {
+          this.deserializeStructure(structure);
           this.selectedSaveId = structure.id;
-          (document.getElementById('structure-name') as HTMLInputElement).value = structure.name;
           this.updateSavedStructuresList();
+          this.updateCurrentStructureDisplay();
+          this.showSnapInfo(`Loaded: ${structure.name || 'Unnamed'}`, 1500, 'success');
         }
       });
 
-      // Load button
-      item.querySelector('.load-btn')!.addEventListener('click', () => {
-        this.deserializeStructure(structure);
-        this.selectedSaveId = structure.id;
-        (document.getElementById('structure-name') as HTMLInputElement).value = structure.name;
-        this.updateSavedStructuresList();
-        this.showSnapInfo(`Loaded: ${structure.name || 'Unnamed'}`, 1500, 'success');
-      });
-
       // Delete button
-      item.querySelector('.delete-btn')!.addEventListener('click', () => {
+      item.querySelector('.delete-btn')!.addEventListener('click', (e) => {
+        e.stopPropagation();
         this.savedStructures.delete(structure.id);
         if (this.selectedSaveId === structure.id) {
           this.selectedSaveId = null;
+          this.updateCurrentStructureDisplay();
         }
         this.persistSavedStructures();
         this.updateSavedStructuresList();
@@ -908,24 +1205,9 @@ class MagneticBuilder {
     }
   }
 
-  private saveNewStructure(): void {
-    const nameInput = document.getElementById('structure-name') as HTMLInputElement;
-    const name = nameInput.value.trim() || `Structure ${this.savedStructures.size + 1}`;
-
-    const structure = this.serializeStructure();
-    structure.name = name;
-
-    this.savedStructures.set(structure.id, structure);
-    this.selectedSaveId = structure.id;
-
-    this.persistSavedStructures();
-    this.updateSavedStructuresList();
-    this.showSnapInfo(`Saved: ${name}`, 1500, 'success');
-  }
-
   private updateSelectedStructure(): void {
     if (!this.selectedSaveId) {
-      this.showSnapInfo('Select a structure first', 2000, 'warning');
+      this.showSnapInfo('No structure selected', 2000, 'warning');
       return;
     }
 
@@ -935,69 +1217,15 @@ class MagneticBuilder {
       return;
     }
 
-    const nameInput = document.getElementById('structure-name') as HTMLInputElement;
-    const name = nameInput.value.trim() || existing.name;
-
     const structure = this.serializeStructure();
     structure.id = this.selectedSaveId;
-    structure.name = name;
+    structure.name = existing.name;
 
     this.savedStructures.set(structure.id, structure);
 
     this.persistSavedStructures();
     this.updateSavedStructuresList();
-    this.showSnapInfo(`Updated: ${name}`, 1500, 'success');
-  }
-
-  private exportToJson(): void {
-    const structure = this.serializeStructure();
-    const nameInput = document.getElementById('structure-name') as HTMLInputElement;
-    structure.name = nameInput.value.trim() || 'Exported Structure';
-
-    const json = JSON.stringify(structure, null, 2);
-
-    // Create download
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${structure.name.replace(/[^a-z0-9]/gi, '_')}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-
-    this.showSnapInfo('Exported to JSON file', 1500, 'success');
-  }
-
-  private importFromFile(file: File): void {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const json = e.target?.result as string;
-        const structure = JSON.parse(json) as SavedStructure;
-        this.validateAndImport(structure);
-      } catch (err) {
-        this.showSnapInfo('Invalid JSON file', 2000, 'error');
-      }
-    };
-    reader.readAsText(file);
-  }
-
-  private importFromText(): void {
-    const textarea = document.getElementById('json-input') as HTMLTextAreaElement;
-    const json = textarea.value.trim();
-
-    if (!json) {
-      this.showSnapInfo('Paste JSON first', 2000, 'warning');
-      return;
-    }
-
-    try {
-      const structure = JSON.parse(json) as SavedStructure;
-      this.validateAndImport(structure);
-      textarea.value = '';
-    } catch (err) {
-      this.showSnapInfo('Invalid JSON format', 2000, 'error');
-    }
+    this.showSnapInfo(`Updated: ${existing.name}`, 1500, 'success');
   }
 
   private validateAndImport(structure: SavedStructure): void {
@@ -1015,7 +1243,15 @@ class MagneticBuilder {
     structure.id = crypto.randomUUID();
     structure.timestamp = Date.now();
 
+    // Save to list and select it
+    this.savedStructures.set(structure.id, structure);
+    this.persistSavedStructures();
+
+    // Load it
     this.deserializeStructure(structure);
+    this.selectedSaveId = structure.id;
+    this.updateSavedStructuresList();
+    this.updateCurrentStructureDisplay();
     this.showSnapInfo(`Imported: ${structure.name || 'Unnamed'}`, 1500, 'success');
   }
 

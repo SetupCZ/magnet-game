@@ -26,8 +26,8 @@ const server = Bun.serve({
           target: 'browser',
         });
         
-        if (transpiled.outputs.length > 0) {
-          const output = transpiled.outputs[0];
+        const output = transpiled.outputs[0];
+        if (output) {
           return new Response(await output.text(), {
             headers: {
               'Content-Type': 'application/javascript',

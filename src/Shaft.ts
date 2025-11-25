@@ -9,10 +9,14 @@ const BEVEL_SIZE = 0.08;
 
 // Calculate shaft lengths
 // - Small shaft: base length for building
-// - Large shaft: sqrt(2) * small, allowing right-angle triangles
+// - Large shaft: sized so ball-to-ball distance is sqrt(2) times the small shaft's
+//   ball-to-ball distance, enabling proper right-angle triangles
 const CUBE_SIDE = 2.0;
 export const SMALL_SHAFT_LENGTH = CUBE_SIDE;
-export const LARGE_SHAFT_LENGTH = CUBE_SIDE * Math.sqrt(2);
+// Small shaft ball-to-ball distance = SMALL_SHAFT_LENGTH + 2*BALL_RADIUS = 3.0
+// Large shaft ball-to-ball distance should be 3.0 * sqrt(2) ≈ 4.243 for right angles
+// Therefore: LARGE_SHAFT_LENGTH = (SMALL_SHAFT_LENGTH + 2*BALL_RADIUS) * sqrt(2) - 2*BALL_RADIUS
+export const LARGE_SHAFT_LENGTH = (SMALL_SHAFT_LENGTH + BALL_RADIUS * 2) * Math.sqrt(2) - BALL_RADIUS * 2;
 
 const SNAP_TOLERANCE = 0.1; // Tolerance for snapping
 

@@ -142,69 +142,151 @@
             top: 20px;
             right: 20px;
             background: rgba(0, 0, 0, 0.8);
-            padding: 20px;
             border-radius: 8px;
             backdrop-filter: blur(10px);
-            min-width: 250px;
+            min-width: 200px;
+            max-width: 280px;
             max-height: 80vh;
-            overflow-y: auto;
+            overflow: hidden;
+            transition: all 0.3s ease;
         }
 
-        #save-panel h3 {
-            margin-bottom: 10px;
-            font-size: 16px;
+        #save-panel.collapsed {
+            min-width: auto;
+            max-width: auto;
         }
 
-        #save-panel input[type="text"] {
-            width: 100%;
-            padding: 8px;
-            margin-bottom: 10px;
-            border: none;
-            border-radius: 4px;
-            background: #333;
-            color: white;
-            font-size: 14px;
+        #save-panel.collapsed .panel-content {
+            display: none;
         }
 
-        #save-panel input[type="text"]:focus {
-            outline: 2px solid #2196F3;
-        }
-
-        .save-btn {
-            width: 100%;
-            padding: 8px;
-            margin-bottom: 5px;
-            border: none;
-            border-radius: 4px;
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 15px;
             cursor: pointer;
-            font-size: 13px;
-            transition: all 0.2s;
+            user-select: none;
+            border-bottom: 1px solid #333;
+        }
+
+        .panel-header:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .panel-header h3 {
+            margin: 0;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .panel-toggle {
+            font-size: 12px;
+            color: #888;
+            transition: transform 0.3s;
+        }
+
+        #save-panel.collapsed .panel-toggle {
+            transform: rotate(180deg);
+        }
+
+        .panel-content {
+            padding: 12px;
+            overflow-y: auto;
+            max-height: calc(80vh - 50px);
+        }
+
+        .save-actions {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .save-actions button {
+            flex: 1;
+            padding: 8px 12px;
+            margin: 0;
+            font-size: 12px;
+            border-radius: 4px;
+        }
+
+        #save-btn {
+            background: #4CAF50;
+            color: white;
+        }
+
+        #import-btn {
+            background: #607D8B;
+            color: white;
+        }
+
+        #export-btn {
+            background: #FF9800;
+            color: white;
+        }
+
+        .current-structure {
+            padding: 8px 10px;
+            background: #2a2a2a;
+            border-radius: 4px;
+            margin-bottom: 12px;
+            font-size: 12px;
+        }
+
+        .current-structure-label {
+            color: #888;
+            font-size: 10px;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .current-structure-name {
+            color: #4CAF50;
+            font-weight: 500;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .current-structure-name.unsaved {
+            color: #888;
+            font-style: italic;
+        }
+
+        #save-panel h4 {
+            font-size: 11px;
+            color: #888;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            font-weight: 500;
         }
 
         .saved-list {
-            margin-top: 15px;
-            border-top: 1px solid #444;
-            padding-top: 10px;
+            margin: 0;
+            padding: 0;
+            border: none;
         }
 
         .saved-item {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 8px;
-            margin-bottom: 5px;
-            background: #333;
+            padding: 8px 10px;
+            margin-bottom: 4px;
+            background: #2a2a2a;
             border-radius: 4px;
             cursor: pointer;
             transition: all 0.2s;
+            font-size: 13px;
         }
 
         .saved-item:hover {
-            background: #444;
+            background: #363636;
         }
 
         .saved-item.selected {
-            background: #2196F3;
+            background: #1e3a5f;
+            border-left: 3px solid #2196F3;
         }
 
         .saved-item-name {
@@ -216,33 +298,165 @@
 
         .saved-item-actions {
             display: flex;
-            gap: 5px;
+            gap: 4px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .saved-item:hover .saved-item-actions {
+            opacity: 1;
         }
 
         .saved-item-actions button {
             width: auto;
-            padding: 4px 8px;
+            padding: 3px 6px;
             margin: 0;
-            font-size: 11px;
+            font-size: 10px;
+            background: #555;
         }
 
-        .import-area {
-            margin-top: 10px;
-            border-top: 1px solid #444;
-            padding-top: 10px;
+        .saved-item-actions button:hover {
+            background: #666;
         }
 
-        .import-area textarea {
+        .saved-item-actions .delete-btn:hover {
+            background: #f44336;
+        }
+
+        /* Modal Dialog Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s;
+        }
+
+        .modal-overlay.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 20px;
+            min-width: 300px;
+            max-width: 400px;
+            transform: scale(0.9);
+            transition: transform 0.2s;
+        }
+
+        .modal-overlay.visible .modal {
+            transform: scale(1);
+        }
+
+        .modal h3 {
+            margin: 0 0 15px 0;
+            font-size: 16px;
+        }
+
+        .modal input[type="text"],
+        .modal textarea {
             width: 100%;
-            height: 60px;
-            padding: 8px;
-            margin-bottom: 5px;
-            border: none;
+            padding: 10px;
+            margin-bottom: 12px;
+            border: 1px solid #444;
             border-radius: 4px;
-            background: #333;
+            background: #1a1a1a;
             color: white;
-            font-size: 12px;
+            font-size: 14px;
+        }
+
+        .modal input[type="text"]:focus,
+        .modal textarea:focus {
+            outline: none;
+            border-color: #2196F3;
+        }
+
+        .modal textarea {
+            height: 100px;
             resize: vertical;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .modal-actions button {
+            width: auto;
+            padding: 8px 16px;
+            margin: 0;
+            font-size: 13px;
+        }
+
+        .modal-btn-primary {
+            background: #2196F3;
+            color: white;
+        }
+
+        .modal-btn-secondary {
+            background: #555;
+            color: white;
+        }
+
+        .modal-btn-success {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .modal-divider {
+            display: flex;
+            align-items: center;
+            margin: 15px 0;
+            color: #666;
+            font-size: 12px;
+        }
+
+        .modal-divider::before,
+        .modal-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #444;
+        }
+
+        .modal-divider span {
+            padding: 0 10px;
+        }
+
+        .file-drop-zone {
+            border: 2px dashed #444;
+            border-radius: 4px;
+            padding: 20px;
+            text-align: center;
+            color: #888;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 12px;
+        }
+
+        .file-drop-zone:hover {
+            border-color: #2196F3;
+            color: #2196F3;
+        }
+
+        .file-drop-zone.dragover {
+            border-color: #4CAF50;
+            background: rgba(76, 175, 80, 0.1);
         }
 
         .hidden-input {
@@ -278,23 +492,69 @@
     </div>
 
     <div id="save-panel">
-        <h3>💾 Save / Load</h3>
-        
-        <input type="text" id="structure-name" placeholder="Structure name...">
-        <button class="save-btn" id="save-new" style="background: #4CAF50; color: white;">Save New</button>
-        <button class="save-btn" id="save-current" style="background: #2196F3; color: white;">Update Selected</button>
-        
-        <div class="saved-list" id="saved-list">
-            <!-- Saved structures will be listed here -->
+        <div class="panel-header" id="panel-toggle">
+            <h3>Saves</h3>
+            <span class="panel-toggle">▼</span>
         </div>
+        <div class="panel-content">
+            <div class="current-structure">
+                <div class="current-structure-label">Current</div>
+                <div class="current-structure-name unsaved" id="current-name">Unsaved</div>
+            </div>
+            
+            <div class="save-actions">
+                <button id="save-btn">Save</button>
+                <button id="import-btn">Import</button>
+                <button id="export-btn">Export</button>
+            </div>
+            
+            <h4>Saved Structures</h4>
+            <div class="saved-list" id="saved-list">
+                <!-- Saved structures will be listed here -->
+            </div>
+        </div>
+        <input type="file" id="file-input" class="hidden-input" accept=".json">
+    </div>
 
-        <div class="import-area">
-            <label>Import/Export:</label>
-            <button class="save-btn" id="export-json" style="background: #FF9800; color: white;">Export JSON</button>
-            <button class="save-btn" id="import-file" style="background: #607D8B; color: white;">Import from File</button>
-            <input type="file" id="file-input" class="hidden-input" accept=".json">
+    <!-- Save Name Dialog -->
+    <div class="modal-overlay" id="name-modal">
+        <div class="modal">
+            <h3>Save Structure</h3>
+            <input type="text" id="structure-name-input" placeholder="Enter a name...">
+            <div class="modal-actions">
+                <button class="modal-btn-secondary" id="name-cancel">Cancel</button>
+                <button class="modal-btn-success" id="name-confirm">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Dialog -->
+    <div class="modal-overlay" id="import-modal">
+        <div class="modal">
+            <h3>Import Structure</h3>
+            <div class="file-drop-zone" id="file-drop-zone">
+                Click to select file or drag & drop
+            </div>
+            <div class="modal-divider"><span>or paste JSON</span></div>
             <textarea id="json-input" placeholder="Paste JSON here..."></textarea>
-            <button class="save-btn" id="import-text" style="background: #607D8B; color: white;">Import from Text</button>
+            <div class="modal-actions">
+                <button class="modal-btn-secondary" id="import-cancel">Cancel</button>
+                <button class="modal-btn-primary" id="import-confirm">Import</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Export Dialog -->
+    <div class="modal-overlay" id="export-modal">
+        <div class="modal">
+            <h3>Export Structure</h3>
+            <div class="modal-actions" style="flex-direction: column; gap: 10px;">
+                <button class="modal-btn-primary" id="export-file" style="width: 100%;">Download as File</button>
+                <button class="modal-btn-secondary" id="export-clipboard" style="width: 100%;">Copy to Clipboard</button>
+            </div>
+            <div style="margin-top: 15px;">
+                <button class="modal-btn-secondary" id="export-cancel" style="width: 100%;">Cancel</button>
+            </div>
         </div>
     </div>
 
@@ -305,6 +565,7 @@
         • Click another ball to connect the shaft<br>
         • Click glowing shaft end to create a new ball<br>
         • Click a connected shaft to delete it<br>
+        • Hold Shift to snap shaft to grid<br>
         • Right-click drag to rotate view<br>
         • Scroll to zoom
     </div>
