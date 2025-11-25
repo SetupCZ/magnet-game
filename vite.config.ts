@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  base: '/magnets/',
+  base: '/magnet-game/',
   build: {
     outDir: 'dist',
   },
