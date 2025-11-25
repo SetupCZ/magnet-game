@@ -137,32 +137,6 @@
             background: rgba(76, 175, 80, 0.9);
         }
 
-        .mode-btn {
-            width: 100%;
-            padding: 10px;
-            margin-bottom: 5px;
-            border: 2px solid transparent;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.2s;
-            background: #555;
-            color: white;
-        }
-
-        .mode-btn.active {
-            border-color: #fff;
-            box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
-        }
-
-        .mode-btn.delete-mode {
-            background: #f44336;
-        }
-
-        .mode-btn.build-mode {
-            background: #4CAF50;
-        }
-
         #save-panel {
             position: absolute;
             top: 20px;
@@ -283,20 +257,14 @@
         <h2>Magnetic Builder</h2>
         
         <div class="control-group">
-            <label>Mode:</label>
-            <button class="mode-btn build-mode active" id="build-mode">🔨 Build</button>
-            <button class="mode-btn delete-mode" id="delete-mode">🗑️ Delete</button>
-        </div>
-        
-        <div class="control-group">
             <button id="add-ball">Add Ball</button>
         </div>
         
         <div class="control-group">
             <label>Select Shaft Size:</label>
             <div class="shaft-select">
-                <button class="shaft-btn active" data-size="small">Small</button>
-                <button class="shaft-btn" data-size="large">Large</button>
+                <button class="shaft-btn active" data-size="small">Short</button>
+                <button class="shaft-btn" data-size="large">Long</button>
             </div>
         </div>
 
@@ -333,10 +301,10 @@
     <div id="info">
         <strong>Controls:</strong><br>
         • Click "Add Ball" to create a ball at origin<br>
-        • Click on a ball surface to attach shaft at that point<br>
-        • Click another ball to snap shaft to it<br>
-        • Click glowing shaft end to create & connect a ball<br>
-        • Delete mode: click shaft/ball to remove<br>
+        • Click on a ball to attach a shaft<br>
+        • Click another ball to connect the shaft<br>
+        • Click glowing shaft end to create a new ball<br>
+        • Click a connected shaft to delete it<br>
         • Right-click drag to rotate view<br>
         • Scroll to zoom
     </div>

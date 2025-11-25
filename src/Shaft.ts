@@ -8,37 +8,36 @@ const SHAFT_RADIUS = 0.15;
 const BEVEL_SIZE = 0.08;
 
 // Calculate shaft lengths
-// For a cube with side length 2 (2 ball radii apart):
-// - Small shaft connects adjacent corners: length = 2 units
-// - Large shaft connects diagonal corners: length = 2 * sqrt(3) ≈ 3.464 units
+// - Small shaft: base length for building
+// - Large shaft: sqrt(2) * small, allowing right-angle triangles
 const CUBE_SIDE = 2.0;
 export const SMALL_SHAFT_LENGTH = CUBE_SIDE;
-export const LARGE_SHAFT_LENGTH = CUBE_SIDE * Math.sqrt(3);
+export const LARGE_SHAFT_LENGTH = CUBE_SIDE * Math.sqrt(2);
 
 const SNAP_TOLERANCE = 0.1; // Tolerance for snapping
 
-// Pastel color palette for kid-friendly shafts
-const PASTEL_COLORS = [
-    0xFFB3BA, // Light pink
-    0xFFDFBA, // Light peach
-    0xFFFFBA, // Light yellow
-    0xBAFFC9, // Light mint
-    0xBAE1FF, // Light blue
-    0xE0BBE4, // Light lavender
-    0xFFC8DD, // Pink
-    0xBDE0FE, // Sky blue
-    0xA2D2FF, // Light cornflower
-    0xCDB4DB, // Light purple
-    0xFFC09F, // Light coral
-    0xADF7B6, // Light green
+// Vibrant color palette for kid-friendly shafts
+const VIBRANT_COLORS = [
+    0xFF4D6A, // Vibrant pink/red
+    0xFF8C42, // Bright orange
+    0xFFD93D, // Sunny yellow
+    0x6BCB77, // Fresh green
+    0x4D96FF, // Bright blue
+    0x9B59B6, // Purple
+    0xE84393, // Hot pink
+    0x00D2D3, // Turquoise
+    0xFF6B6B, // Coral red
+    0x54A0FF, // Sky blue
+    0x5F27CD, // Deep purple
+    0x00B894, // Mint green
 ];
 
 /**
  * Generate a random pastel color
  */
 function getRandomPastelColor(): number {
-    const color = PASTEL_COLORS[Math.floor(Math.random() * PASTEL_COLORS.length)];
-    return color !== undefined ? color : 0xFFB3BA; // Fallback to light pink
+    const color = VIBRANT_COLORS[Math.floor(Math.random() * VIBRANT_COLORS.length)];
+    return color !== undefined ? color : 0xFF4D6A; // Fallback to vibrant pink
 }
 
 /**
@@ -196,6 +195,17 @@ export class Shaft {
 
     public getColor(): number {
         return this.color;
+    }
+
+    public highlightForDeletion(highlight: boolean): void {
+        const material = this.shaftMesh.material as THREE.MeshStandardMaterial;
+        if (highlight) {
+            material.emissive = new THREE.Color(0xff0000);
+            material.emissiveIntensity = 0.5;
+        } else {
+            material.emissive = new THREE.Color(0x000000);
+            material.emissiveIntensity = 0;
+        }
     }
 
     public setStartDirection(direction: THREE.Vector3): void {
