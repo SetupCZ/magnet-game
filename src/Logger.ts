@@ -1,5 +1,19 @@
 import * as THREE from 'three';
 
+// Check for LOG env flag via Vite's import.meta.env or URL param
+function isLoggingEnabled(): boolean {
+    // Check URL param first (for runtime toggle)
+    if (typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('LOG')) return true;
+    }
+    // Check Vite env variable
+    // @ts-ignore - Vite injects this at build time
+    return import.meta.env?.VITE_LOG === 'true';
+}
+
+export const LOG_ENABLED = isLoggingEnabled();
+
 export class Logger {
     private static logs: string[] = [];
     private static sessionStart: number = Date.now();
@@ -9,6 +23,8 @@ export class Logger {
      * Log a user action (click, button press, etc.)
      */
     public static logAction(action: string, details?: any): void {
+        if (!LOG_ENABLED) return;
+        
         this.actionCounter++;
         const timestamp = this.getTimestamp();
         const log = `[${timestamp}] [ACTION #${this.actionCounter}] ${action}`;
@@ -27,6 +43,8 @@ export class Logger {
      * Log ball and shaft positions
      */
     public static logPositions(balls: any[], shafts: any[]): void {
+        if (!LOG_ENABLED) return;
+        
         const timestamp = this.getTimestamp();
         this.logs.push(`[${timestamp}] [POSITIONS]`);
         
@@ -54,6 +72,8 @@ export class Logger {
      * Log constraint solver iteration
      */
     public static logSolverIteration(iteration: number, error: number, ballPositions: Map<string, THREE.Vector3>): void {
+        if (!LOG_ENABLED) return;
+        
         const timestamp = this.getTimestamp();
         this.logs.push(`[${timestamp}] [SOLVER] Iteration ${iteration}: error=${error.toFixed(4)}`);
         
@@ -66,6 +86,8 @@ export class Logger {
      * Log constraint solver start
      */
     public static logSolverStart(targetBall: any, existingBall: any, newShaft: any, allBalls: Set<any>): void {
+        if (!LOG_ENABLED) return;
+        
         const timestamp = this.getTimestamp();
         this.logs.push(`[${timestamp}] [SOLVER START]`);
         this.logs.push(`  Target ball: (${targetBall.getPosition().x.toFixed(3)}, ${targetBall.getPosition().y.toFixed(3)}, ${targetBall.getPosition().z.toFixed(3)})`);
@@ -85,6 +107,8 @@ export class Logger {
      * Log constraint solver result
      */
     public static logSolverResult(success: boolean, message: string, finalPositions?: Map<string, THREE.Vector3>): void {
+        if (!LOG_ENABLED) return;
+        
         const timestamp = this.getTimestamp();
         this.logs.push(`[${timestamp}] [SOLVER RESULT] ${success ? 'SUCCESS' : 'FAILURE'}`);
         this.logs.push(`  Message: ${message}`);
@@ -101,6 +125,8 @@ export class Logger {
      * Log triangle detection
      */
     public static logTriangleDetection(detected: boolean, details: any): void {
+        if (!LOG_ENABLED) return;
+        
         const timestamp = this.getTimestamp();
         this.logs.push(`[${timestamp}] [TRIANGLE] Detected: ${detected}`);
         this.logs.push(JSON.stringify(details, this.vector3Replacer, 2));
@@ -110,6 +136,8 @@ export class Logger {
      * Log an error
      */
     public static logError(context: string, error: any): void {
+        if (!LOG_ENABLED) return;
+        
         const timestamp = this.getTimestamp();
         this.logs.push(`[${timestamp}] [ERROR] ${context}`);
         this.logs.push(`  ${error.toString()}`);
@@ -123,6 +151,8 @@ export class Logger {
      * Log a general message
      */
     public static log(message: string, data?: any): void {
+        if (!LOG_ENABLED) return;
+        
         const timestamp = this.getTimestamp();
         const log = `[${timestamp}] ${message}`;
         this.logs.push(log);

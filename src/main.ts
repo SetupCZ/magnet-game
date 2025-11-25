@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Ball, BALL_RADIUS } from './Ball';
 import { Shaft, type ShaftSize } from './Shaft';
 import { ConstraintSolver } from './ConstraintSolver';
-import { Logger } from './Logger';
+import { Logger, LOG_ENABLED } from './Logger';
 
 // Types for save/load functionality
 interface SavedBall {
@@ -144,9 +144,16 @@ class MagneticBuilder {
       this.clearAll();
     });
 
-    document.getElementById('download-log')!.addEventListener('click', () => {
-      Logger.copyLogsToClipboard();
-    });
+    // Only show log button if logging is enabled
+    const logButton = document.getElementById('download-log')!;
+    if (LOG_ENABLED) {
+      logButton.style.display = 'block';
+      logButton.addEventListener('click', () => {
+        Logger.copyLogsToClipboard();
+      });
+    } else {
+      logButton.style.display = 'none';
+    }
 
     document.querySelectorAll('.shaft-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
